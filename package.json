@@ -1,0 +1,34 @@
+{
+  "name": "practica_06awi4.0",
+  "version": "1.0.0",
+  "description": "practica creada con la finalidad de conectar las sesiones a la BD y asi porder crear las funciones que puedan guardar, elimiar, actualizar y buscar los datos en la bd de mongose",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon app.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dul220509/Practica_06AWI4.0.git"
+  },
+  "author": "Dulce Yadira Salvador Antonio",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Dul220509/Practica_06AWI4.0/issues"
+  },
+  "homepage": "https://github.com/Dul220509/Practica_06AWI4.0#readme",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "moment": "^2.30.1",
+    "moment-timezone": "^0.5.47",
+    "mongoose": "^8.10.0",
+    "node": "^23.7.0",
+    "nodemon": "^3.1.9",
+    "require": "^2.4.20",
+    "socket.io": "^4.8.1",
+    "uuid": "^11.0.5"
+  }
+}
