@@ -5,7 +5,7 @@ const sesionesSchema = new Schema({
     sessionId:{
         require:true,
         unique:true,
-        type:Number
+        type:String
     },
     email: String,
     nickname: String,

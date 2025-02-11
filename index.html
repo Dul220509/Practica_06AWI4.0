@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Sesiones</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        table { width: 80%; margin: 20px auto; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f4f4f4; }
+        button { padding: 5px 10px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Gestión de Sesiones</h1>
+    <button onclick="fetchSessions()">Cargar Sesiones</button>
+    <table>
+        <thead>
+            <tr>
+                <th>ID de Sesión</th>
+                <th>Email</th>
+                <th>Nickname</th>
+                <th>IP Cliente</th>
+                <th>Tiempo Activo</th>
+                <th>Tiempo Inactividad</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="sessionTableBody"></tbody>
+    </table>
+
+    <script>
+        async function fetchSessions() {
+            const response = await fetch('http://localhost:3000/sessions');
+            const data = await response.json();
+            
+            if (response.ok) {
+                const tableBody = document.getElementById('sessionTableBody');
+                tableBody.innerHTML = '';
+                data.sessions.forEach(session => {
+                    const row = `<tr>
+                        <td>${session.sessionId}</td>
+                        <td>${session.email}</td>
+                        <td>${session.nickname}</td>
+                        <td>${session.ipClient}</td>
+                        <td>${session.tiempoActivo}</td>
+                        <td>${session.tiempoInactividad}</td>
+                        <td>
+                            <button onclick="logoutSession('${session.sessionId}')">Cerrar</button>
+                        </td>
+                    </tr>`;
+                    tableBody.innerHTML += row;
+                });
+            } else {
+                alert(data.message);
+            }
+        }
+
+        async function logoutSession(sessionId) {
+            await fetch('http://localhost:3000/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId })
+            });
+            fetchSessions();
+        }
+    </script>
+</body>
+</html>

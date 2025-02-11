@@ -1,219 +1,172 @@
-//se importan las libtrerias
+// Importación de las librerías necesarias
 import express from "express";
 import session from "express-session";
-import bodyParser from "body-parser";
 import moment from "moment";
 import { v4 as uuidv4 } from "uuid";
 import os from "os";
 import mongoose from "mongoose";
-//import mongoose,{mongo} from "mongoose";
+import crypto from "crypto";
+import sesionesSchema from "./modelo.js";
 
-//inicializo la aplicacción
-const app= express();
-const PORT=3000;
-const sesiones = {};//guarda todas las sesiones
+// Inicialización de la aplicación Express
+const app = express();
+const PORT = 3000;
 
-//MIDLEWARES
-app.use(express.json());//midleware para manejar datos json
-app.use(express.urlencoded({extended:true}));//Midleware para manejar datos codificados en URL
+// Middleware para manejar JSON y datos en formularios
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Configuración de sesiones con express-session
 app.use(
-    session({
-        secret:'P4-DYSA#Bee-SesionesHTTP',
-        resave:false,
-        saveUninitialized:true,
-        cookie:{ maxAge: 15 * 60 * 1000 }//tiempo de la expiracion de la sesion 15 minutos
-    })
- );
+  session({
+    secret: "P4-DYSA#Bee-SesionesHTTP", // Clave secreta para firmar las cookies de sesión
+    resave: false, // Evita guardar la sesión si no hubo cambios
+    saveUninitialized: true, // Guarda sesiones vacías
+    cookie: { maxAge: 5 * 60 * 1000 }, // Expiración de la sesión en 5 minutos
+  })
+);
 
-const sessionId = uuidv4();// Genera un ID único para la sesión
-const now = new Date();// Obtiene la fecha y hora actual
-const xicoTime = new Date(now.getTime() - 6 * 60 * 60 * 1000); // Restamos 6 horas
+// Obtiene la dirección IP del cliente
+const getClientIp = (request) => request.ip.replace(/^.*:/, "");
 
-// Formatea la fecha actual para mayor legibilidad
-const formattedDate= new Intl.DateTimeFormat("es-ES", {
-    dateStyle: "full",
-    timeStyle: "medium",
-    timeZone: "UTC", // Puedes cambiar la zona horaria si es necesario
-}).format(xicoTime);
-
-//console.log("la hora es:",xicoTime.toString());
-
-//funcion de utilidad que nos permite accerder a la informacion no se usa aun 
-const getClientIpp = (request) =>{
-    return(
-        request.header["x-forwarded-for"] ||
-        request.connection.remoteAddress ||
-        request.socket.remoteAddress ||
-        request.connection.socket?.remoteAddress
-    );
+// Obtiene la dirección IP del servidor
+const getServerIP = () => {
+  const interfaces = os.networkInterfaces();
+  for (const iface of Object.values(interfaces).flat()) {
+    if (iface.family === "IPv4" && !iface.internal) return iface.address;
+  }
+  return "IP no disponible";
 };
 
- // Función para obtener la IP del cliente
- const getClientIp = (request) => request.ip.replace(/^.*:/, '');
- 
- // Función para obtener la IP del servidor
- const getServerIP = () => {
-     const interfaces = os.networkInterfaces();
-     for (const iface of Object.values(interfaces).flat()) {
-         if (iface.family === "IPv4" && !iface.internal) {
-             return iface.address;
-         }
-     }
-     return "IP no disponible";
- };
-
- // Función para obtener la dirección MAC del servidor
+// Obtiene la dirección MAC del servidor
 const getServerMacAddress = () => {
-    const networkInterfaces = os.networkInterfaces();
-    for (const interfaceName in networkInterfaces) {
-        const iface = networkInterfaces[interfaceName];
-        for (const details of iface) {
-            if (details.mac && details.mac !== "00:00:00:00:00:00") {
-                return details.mac; // Devuelve la primera MAC válida
-            }
-        }
-    }
-    return "MAC no disponible";
+  const interfaces = os.networkInterfaces();
+  for (const iface of Object.values(interfaces).flat()) {
+    if (iface.mac && iface.mac !== "00:00:00:00:00:00") return iface.mac;
+  }
+  return "MAC no disponible";
 };
 
-// Función para eliminar sesiones inactivas
-const limpiarSesionesInactivas = () => {
-    const ahora = Date.now();
-    for (const sessionId in sesiones) {
-        const { lastAccessed } = sesiones[sessionId];
-        if (ahora - lastAccessed > 5 * 60 * 1000) { // Si han pasado 5 min sin actividad
-            delete sesiones[sessionId];
-        }
-    }
+// Conexión a la base de datos MongoDB Atlas
+mongoose.connect("mongodb+srv://Dulce:dul230493@cluster0.ql2zu.mongodb.net/API-AWI140-230493")
+  .then(() => console.log("MongoDB Atlas conectado"))
+  .catch((error) => console.error("Error conectando a MongoDB:", error));
+
+// Genera un par de claves RSA (pública y privada) para encriptación
+const generateRSAKeys = () => {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
+  return { 
+    publicKey: publicKey.export({ type: "pkcs1", format: "pem" }), 
+    privateKey: privateKey.export({ type: "pkcs1", format: "pem" }) 
+  };
 };
-setInterval(limpiarSesionesInactivas, 60 * 1000); // Revisa cada minuto
+const { publicKey, privateKey } = generateRSAKeys();
 
-//crear endpoint para dar la bienvenida
-app.get('/',(request,response)=>{
-    return response.status(200).json({
-        message: "Bienvenido al API de Controles de Sesiones",
-        author: "Dulce Yadira Salvador Antonio"
-    })
+// Función para encriptar datos con la clave pública
+const encryptData = (data) => {
+  return crypto.publicEncrypt(
+    {
+      key: publicKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+    },
+    Buffer.from(data)
+  ).toString("base64");
+};
+
+// Función para desencriptar datos con la clave privada
+const decryptData = (data) => {
+  return crypto.privateDecrypt(
+    {
+      key: privateKey,
+      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+    },
+    Buffer.from(data, "base64")
+  ).toString();
+};
+
+// Ruta de bienvenida
+app.get("/", (request, response) => {
+  response.status(200).json({
+    message: "Bienvenido al API de Control de Sesiones",
+    author: "Dulce Yadira Salvador Antonio",
+  });
 });
 
-//Endpoint para iniciar sesion
-app.post("/login", (request, response) => {
-    const { email, nickname, macClient } = request.body;// Extrae las variables necesarias del cuerpo de la solicitud
-    if (!email || !nickname || !macClient) {// Verifica que los campos requeridos estén presentes
-        return response.status(400).json({ 
-            message: "Missing required fields" });
-    }
+// Endpoint para iniciar sesión
+app.post("/login", async (req, res) => {
+  const { email, nickname, macClient } = req.body;
+  if (!email || !nickname || !macClient) return res.status(400).json({ message: "Missing required fields" });
 
-    const sessionId = uuidv4(); // Generar un nuevo ID de sesión
-    const timestamp = Date.now();
-    // Guarda la información de la sesión en el objeto "sesion"
-    sesiones[sessionId] = {
-        sessionId, // ID único de la sesión
-        email, // Correo electrónico del usuario
-        nickname, // Apodo del usuario
-        macClient, // Dirección MAC del usuario
-        ipClient: getClientIp(request), // IP del cliente
-        ipServer: getServerIP(), // IP del servidor
-        macServer: getServerMacAddress(), // MAC del servidor // IP del cliente que realiza la solicitud
-        dateCreated: timestamp.toString(), // Guardamos el timestamp
-        lastAccessed: timestamp.toString(), // Fecha del último acceso formateada
-    };
+  const sessionId = uuidv4();
+  const dateCreated = moment().format("DD-MM-YYYY HH:mm:ss");
+  const lastAccessed = dateCreated;
+  const status = "Activa";
 
-    // Responde con un mensaje de éxito y el ID de la sesión
-    response.status(200).json({
-        message: "Se ha logueado de manera exitosa",
-        sessionId,
-    });
-    
-    //status
-    app.get("/status", (request, response) => {
-        const  sessionId  = request.query.sessionId;
-        if (!sessionId || !sesiones[sessionId]) {
-            return response.status(404).json({ message: "No hay sesión activa" });
-        }
-    
-        const sesion = sesiones[sessionId];
-        const ahora = moment();
-        const dateCreated = moment(sesion.dateCreated);
-        const lastAccessed = moment(sesion.lastAccessed);
-    
-        const tiempoActivo = moment.duration(ahora.diff(dateCreated)).humanize();
-        const tiempoInactividad = moment.duration(ahora.diff(lastAccessed)).humanize();
-    
-        response.status(200).json({
-            message: "Sesión activa",
-            session: {
-                ...sesiones,
-                tiempoActivo,
-                tiempoInactividad,
-            }
-        });
-    });
-    
-    //logout endpoint
-    app.post("/logout",(request,response)=>{
-        const {sessionId}=request.body;
-        if(!sessionId || !sesiones[sessionId]){
-            return response.status(404).json({message:"No se ha encontrado una sesion activa"});
-        }
-        delete sesiones[sessionId];
-        request.session.destroy((err)=>{
-            if(err){
-                return response.status(500).send('Error al cerrar la sesion');
-            }
-        })
-        response.status(200).json({message:"Logout successeful"})
-    })
+  // Crea una nueva sesión y la guarda en la base de datos
+  const sesion = new sesionesSchema({
+    sessionId,
+    email: encryptData(email), // Encripta el email
+    nickname,
+    macClient,
+    ipClient: getClientIp(req),
+    ipServer: getServerIP(),
+    macServer: getServerMacAddress(),
+    dateCreated,
+    lastAccessed,
+    status,
+  });
 
-    //endpoint actualizar la sesion// Update
-    app.put("/update", (request, response) => {
-        const { sessionId, email, nickname } = request.body;
-        if (!sessionId || !sesiones[sessionId]) {
-            return response.status(404).json({ message: "No hay sesión activa" });
-        }
-        if (email) sesiones[sessionId].email = email;
-        if (nickname) sesiones[sessionId].nickname = nickname;
-        sesiones[sessionId].lastAccessed
-        response.status(200).json({ 
-            message: "Sesión actualizada", 
-            session: sesiones[sessionId]
-        });
-    });
-    
+  await sesion.save();
+  res.status(200).json({ message: "Inicio de sesión exitoso", sessionId });
 });
 
-//const moment = require("moment");
+// Endpoint para obtener el estado de una sesión
+app.get("/status", async (request, response) => {
+  const { sessionId } = request.query;
+  if (!sessionId) return response.status(400).json({ message: "Falta sessionId" });
 
-app.get("/sessions", (request, response) => {
-    // Verifica si hay sesiones activas
-    if (Object.keys(sesiones).length === 0) {
-        return response.status(404).json({ message: "No hay sesiones activas" });
-    }
+  const sesion = await sesionesSchema.findOne({ sessionId });
+  if (!sesion) return response.status(404).json({ message: "Sesión no encontrada" });
 
-    const ahora = Date.now();
+  const tiempoActivo = moment.duration(moment().diff(moment(sesion.dateCreated))).humanize();
+  const tiempoInactividad = moment.duration(moment().diff(moment(sesion.lastAccessed))).humanize();
 
-    // 🔹 Obtener todas las sesiones activas con formato correcto
-    const sesionesFormateadas = Object.values(sesiones).map(sesion => ({
-        ...sesion, // Copiamos los datos originales de la sesión
-         ipClient: sesion.ipClient || request.ip.replace(/^.*:/, ''), // Corregimos la IP del cliente si no está almacenada
-         tiempoActivo: moment.duration(ahora - moment(sesion.dateCreated, "dddd, D [de] MMMM [de] YYYY, HH:mm:ss")).humanize(),
-         tiempoInactividad: moment.duration(ahora - moment(sesion.lastAccessed, "dddd, D [de] MMMM [de] YYYY, HH:mm:ss")).humanize()
-    }));
-
-    response.status(200).json({
-        message: "Lista de sesiones activas",
-        sessions: sesionesFormateadas
-    });
+  response.status(200).json({
+    message: "Sesión activa",
+    session: { 
+      ...sesion._doc,
+      tiempoActivo, 
+      tiempoInactividad 
+    },
+  });
 });
 
+// Endpoint para cerrar sesión
+app.post("/logout", async (request, response) => {
+  const { sessionId } = request.body;
+  if (!sessionId) return response.status(400).json({ message: "Falta sessionId" });
 
-// Iniciar servidor
-app.listen(PORT, () => {
-    console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  const sesion = await sesionesSchema.findOneAndDelete({ sessionId });
+  if (!sesion) return response.status(404).json({ message: "Sesión no encontrada" });
+
+  response.status(200).json({ message: "Sesión cerrada correctamente" });
 });
-//aqui va la conexion de la base de datos a mongoDB
 
-mongoose.connect('mongodb+srv://Dulce:dul230493@cluster0.ql2zu.mongodb.net/API-AWI140-230493?retryWrites=true&w=majority&appName=Cluster0')
-.then((db)=>console.log('mongodb atlas conected'))
-.catch((error)=>console.error(error));
-//export default mongoose:
+// Endpoint para obtener todas las sesiones activas
+app.get("/allCurrentSessions", async (req, res) => {
+  const sesiones = await sesionesSchema.find({ status: "Activa" });
+  if (!sesiones.length) return res.status(404).json({ message: "No hay sesiones activas" });
+
+  res.status(200).json({ sessions: sesiones.map(sesion => ({ ...sesion._doc, email: decryptData(sesion.email) })) });
+});
+
+// Endpoint para eliminar todas las sesiones
+app.delete("/deleteAllSessions", async (req, res) => {
+  await sesionesSchema.deleteMany({});
+  res.status(200).json({ message: "Todas las sesiones han sido eliminadas" });
+});
+
+// Inicia el servidor en el puerto especificado
+app.listen(PORT, () => console.log(`Servidor corriendo en http://localhost:${PORT}`));
