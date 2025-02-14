@@ -12,9 +12,9 @@ const sesionesSchema = new Schema({
     ipClient: String,
     ipServer: String,
     macServer: String,
-    serverMac: String,
-    dateCreated: Date,
-    lastAccessed: Date,
+    macClient: String,
+    dateCreated: String,
+    lastAccessed: String,
 },{
     versionKey:false,
     timestamps:true

@@ -1,14 +1,17 @@
 // Importación de las librerías necesarias
-import express from "express";
+import express, { request, response } from "express";
 import session from "express-session";
-import moment from "moment";
+import moment from "moment-timezone";
 import { v4 as uuidv4 } from "uuid";
 import os from "os";
 import mongoose from "mongoose";
 import crypto from "crypto";
 import sesionesSchema from "./modelo.js";
+import { addAbortListener } from "events";
+//import express from 'express';
 
 // Inicialización de la aplicación Express
+
 const app = express();
 const PORT = 3000;
 
@@ -52,31 +55,30 @@ mongoose.connect("mongodb+srv://Dulce:dul230493@cluster0.ql2zu.mongodb.net/API-A
   .then(() => console.log("MongoDB Atlas conectado"))
   .catch((error) => console.error("Error conectando a MongoDB:", error));
 
-// Genera un par de claves RSA (pública y privada) para encriptación
-const generateRSAKeys = () => {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+//Genera un par de claves RSA (pública y privada) para encriptación
+ const generateRSAKeys = () => {
+   const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
   });
-  return { 
-    publicKey: publicKey.export({ type: "pkcs1", format: "pem" }), 
+   return { 
+     publicKey: publicKey.export({ type: "pkcs1", format: "pem" }), 
     privateKey: privateKey.export({ type: "pkcs1", format: "pem" }) 
   };
-};
-const { publicKey, privateKey } = generateRSAKeys();
+ };
+ const { publicKey, privateKey } = generateRSAKeys();
 
-// Función para encriptar datos con la clave pública
-const encryptData = (data) => {
-  return crypto.publicEncrypt(
-    {
-      key: publicKey,
+ // Función para encriptar datos con la clave pública
+ const encryptData = (data) => {
+   return crypto.publicEncrypt(
+     {
+       key: publicKey,
       padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-    },
-    Buffer.from(data)
-  ).toString("base64");
-};
-
-// Función para desencriptar datos con la clave privada
-const decryptData = (data) => {
+     },
+     Buffer.from(data)
+   ).toString("base64");
+ };
+ // // Función para desencriptar datos con la clave privada
+ const decryptData = (data) => {
   return crypto.privateDecrypt(
     {
       key: privateKey,
@@ -94,13 +96,17 @@ app.get("/", (request, response) => {
   });
 });
 
+// Configurar moment para usar español y la zona horaria de México
+//moment.locale("es");
+
 // Endpoint para iniciar sesión
 app.post("/login", async (req, res) => {
   const { email, nickname, macClient } = req.body;
-  if (!email || !nickname || !macClient) return res.status(400).json({ message: "Missing required fields" });
+  if (!email || !nickname || !macClient) return res.status(400).json({ message: "Faltan campos requeridos" });
 
   const sessionId = uuidv4();
-  const dateCreated = moment().format("DD-MM-YYYY HH:mm:ss");
+  // Usar moment para obtener la fecha y hora en formato String
+  const dateCreated = moment().tz("America/Mexico_City").format("DD-MM-YYYY HH:mm:ss");
   const lastAccessed = dateCreated;
   const status = "Activa";
 
@@ -109,12 +115,12 @@ app.post("/login", async (req, res) => {
     sessionId,
     email: encryptData(email), // Encripta el email
     nickname,
-    macClient,
     ipClient: getClientIp(req),
     ipServer: getServerIP(),
     macServer: getServerMacAddress(),
-    dateCreated,
-    lastAccessed,
+    macClient: encryptData(macClient),
+    dateCreated, // Guarda la fecha como string
+    lastAccessed, // Guarda la fecha como string
     status,
   });
 
@@ -122,7 +128,7 @@ app.post("/login", async (req, res) => {
   res.status(200).json({ message: "Inicio de sesión exitoso", sessionId });
 });
 
-// Endpoint para obtener el estado de una sesión
+ // Obtener estado de una sesión
 app.get("/status", async (request, response) => {
   const { sessionId } = request.query;
   if (!sessionId) return response.status(400).json({ message: "Falta sessionId" });
@@ -130,8 +136,9 @@ app.get("/status", async (request, response) => {
   const sesion = await sesionesSchema.findOne({ sessionId });
   if (!sesion) return response.status(404).json({ message: "Sesión no encontrada" });
 
-  const tiempoActivo = moment.duration(moment().diff(moment(sesion.dateCreated))).humanize();
-  const tiempoInactividad = moment.duration(moment().diff(moment(sesion.lastAccessed))).humanize();
+  // Convertimos los tiempos a la zona horaria correcta
+  const tiempoActivo = moment(sesion.dateCreated).tz("America/Mexico_City").fromNow();
+  const tiempoInactividad = moment(sesion.lastAccessed).tz("America/Mexico_City").fromNow();
 
   response.status(200).json({
     message: "Sesión activa",
@@ -143,15 +150,54 @@ app.get("/status", async (request, response) => {
   });
 });
 
-// Endpoint para cerrar sesión
+//  Actualizar sesión
+app.put("/update", async (request, response) => {
+  const { sessionId, email, nickname } = request.body;
+  if (!sessionId) return response.status(400).json({ message: "Falta sessionId" });
+
+  const sesion = await sesionesSchema.findOne({ sessionId });
+  if (!sesion) return response.status(404).json({ message: "Sesión no encontrada" });
+
+  if (email) sesion.email = email;
+  if (nickname) sesion.nickname = nickname;
+  sesion.lastAccessed = new Date();
+
+  await sesion.save();
+  response.status(200).json({ message: "Sesión actualizada", session: sesion });
+});
+
+
 app.post("/logout", async (request, response) => {
   const { sessionId } = request.body;
   if (!sessionId) return response.status(400).json({ message: "Falta sessionId" });
 
-  const sesion = await sesionesSchema.findOneAndDelete({ sessionId });
+  const sesion = await sesionesSchema.findOne({ sessionId });
   if (!sesion) return response.status(404).json({ message: "Sesión no encontrada" });
 
-  response.status(200).json({ message: "Sesión cerrada correctamente" });
+  // Actualiza el estado de la sesión en la base de datos
+  sesion.status = "Finalizada por el Usuario";
+  await sesion.save();
+
+  // Destruye la sesión en express-session
+  request.session.destroy((err) => {
+    if (err) return response.status(500).json({ message: "Error al cerrar la sesión" });
+    response.status(200).json({ message: "Sesión cerrada exitosamente" });
+  });
+});
+
+
+app.get("/sessions", async (request, response) => {
+  const sesiones = await sesionesSchema.find();
+  if (!sesiones.length) return response.status(404).json({ message: "No hay sesiones activas" });
+
+  response.status(200).json({
+    message: "Lista de sesiones activas",
+    sessions: sesiones.map((sesion) => ({
+      ...sesion._doc,
+      tiempoActivo: moment.duration(moment().diff(moment(sesion.dateCreated))).humanize(),
+      tiempoInactividad: moment.duration(moment().diff(moment(sesion.lastAccessed))).humanize(),
+    })),
+  });
 });
 
 // Endpoint para obtener todas las sesiones activas
